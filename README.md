@@ -1,0 +1,67 @@
+# AutoBox 按键循环
+
+Windows 桌面小工具：游戏在前台时循环发送“主键盘数字 1–5 中的一个键 → 空格”。切到其他软件后自动暂停，切回游戏后继续。无需安装 Python 或 AutoHotkey，运行环境要求见下文。
+
+界面采用 NES.css 风格的 WinForms 原生像素组件：阶梯边框、块状阴影、像素按钮、像素下拉框与状态指示灯，搭配内嵌 Press Start 2P 字体。UI 来源及许可见 `third_party/README.md`。当前直接运行 `dist/AutoBox.exe`，无需压缩包、外部字体或联网加载主题。
+
+本版已取消后台消息发送，改为 Windows `SendInput` 扫描码模拟输入。**尚未验证 DNF 客户端是否接收这种输入，不能保证游戏响应。** 程序不会主动切换到游戏。每次按下前会检查目标是否在前台；若切换窗口时有本工具按住的键，仍会发送对应的松开操作，避免按键一直保持按下。
+
+## 运行环境与依赖
+
+**程序依赖 .NET Framework 4.5 或更高版本，并非完全不需要运行时。目标电脑已安装合适版本时，只需一个 `AutoBox.exe`，无需额外下载运行时或其他文件；如果缺少 .NET Framework，则需要先安装合适版本。**
+
+从代码与构建配置来看：
+
+- 界面使用 .NET Framework 的 Windows Forms，绘图使用 System.Drawing。
+- 按键、窗口和字体操作调用的 `user32.dll`、`gdi32.dll` 属于 Windows 系统组件，不需要单独下载。
+- 像素字体、图标及相关许可证均已嵌入 EXE，不需要额外安装字体，也不需要联网加载主题。
+- 运行时不需要 Python、Node.js、AutoHotkey、WebView2、.NET SDK 或额外第三方 DLL。
+
+以上说明针对运行已编译的程序；源码构建方式见“开发与验证”。
+
+## 使用
+
+1. 双击 `dist/AutoBox.exe`，在 Windows 管理员权限提示中选择“是”。解压发行包时，直接双击包内的 `AutoBox.exe`。程序默认请求管理员权限，标题栏会显示当前权限状态。
+2. 点击“刷新窗口”，选择 DNF 对应的窗口。若游戏已重启，需要重新选择。
+3. 选择主键盘数字 1–5 中的一个操作键，按需要设置开始 / 停止、只停止、暂停 / 继续快捷键。
+4. 切回游戏，按 **F8** 开始。也可以点击“开始循环”后切回游戏；状态栏在游戏不处于前台时显示暂停。
+5. 按 **F9** 只停止；**F8** 切换开始 / 停止；**F10** 手动暂停 / 继续。三个快捷键可在界面修改，运行时在其他软件中也会被本工具占用。手动暂停后，切回游戏也不会自动继续，需要再次按 F10 或点击“继续”。若显示快捷键冲突，请换一个键或使用按钮。
+6. 最小化进入系统托盘；双击托盘图标恢复窗口，右键可以停止或退出。关闭窗口会先停止循环再退出。
+
+程序启动后不会自动发送按键。运行中锁定配置，停止后可修改。默认自定义键为主键盘数字 **1**。固定时间为：每个键按住 **10 ms**，数字键松开后等 **50 ms** 按空格，空格松开后等 **60 ms** 进入下一轮。因此一轮约 **130 ms**，实际调度会有误差。三个时间输入框及轮数显示已移除，旧配置中的时间值不再生效。旧配置中不再支持的操作键会自动回退为 1。
+
+界面保留窗口选择、操作键选择、三个快捷键设置，以及底部开始、停止、暂停 / 继续按钮和状态栏。操作键仅可选择 QWER 上方的主键盘数字 **1、2、3、4、5**，不是小键盘数字；每次操作键之后仍固定按空格。全局控制快捷键可选择 F1–F12。
+
+参数保存在 `%LOCALAPPDATA%\AutoBox\settings.xml`。下次启动会恢复参数和优先选择上次的进程，但不会自动开始循环。
+
+## DNF 输入验证
+
+选择一个已在游戏中绑定、容易观察效果的数字键，保持游戏在前台，按 F8 启动，观察是否执行动作，然后按 F9 停止。切换到其他软件时应暂停，返回游戏时继续。按 F10 可手动暂停 / 继续。
+
+管理员权限用于减少进程权限差异导致的发送失败。如果游戏在前台仍无反应，可能不接受模拟输入；提升权限不能保证解决此问题。
+
+## 开发与验证
+
+源码使用 C# / Windows Forms，面向 Windows 内置 .NET Framework 4.x（需要 4.5 或更高版本；建议 Windows 10/11）。开发构建无需安装 .NET SDK。
+
+在 Windows PowerShell 中运行：
+
+```powershell
+.\build.ps1
+.\build.ps1 -Test
+```
+
+如本机策略不允许运行脚本，可双击 `build.cmd`，或运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test
+```
+
+测试覆盖循环顺序、停止与按键释放、释放失败、参数范围、目标窗口身份、窗口关闭、前台判断、切换窗口后暂停和恢复、手动暂停 / 继续，以及按下前再次检查焦点。焦点和暂停测试使用模拟输入后端，不会向 DNF 发送测试按键；测试通过不代表已验证 DNF 的兼容性。
+
+相关平台文档：
+
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput
+- https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey
