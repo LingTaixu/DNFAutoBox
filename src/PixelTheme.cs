@@ -261,7 +261,7 @@ namespace AutoBox
                     PixelTheme.Fill(graphics, PixelTheme.Ink, new Rectangle(step * (3 + column * 3), step * (5 + row * 3), step * 2, step * 2));
             PixelTheme.Fill(graphics, PixelTheme.Ink, new Rectangle(step * 3, step * 11, step * 8, step));
             PixelTheme.Text(graphics, "AUTO BOX", PixelTheme.TitleFont, PixelTheme.Ink, new Rectangle(step * 22, 0, Width - step * 22, step * 12), StringAlignment.Near);
-            PixelTheme.Text(graphics, "按键循环  ·  by 陈碎碎", PixelTheme.BodyFont, PixelTheme.Muted, new Rectangle(step * 22, step * 12, Width - step * 22, step * 7), StringAlignment.Near);
+            PixelTheme.Text(graphics, "按键循环  ·  by 陈碎碎  如果觉得好用记得把不要的+12增幅邮寄陈碎碎", PixelTheme.BodyFont, PixelTheme.Muted, new Rectangle(step * 22, step * 12, Width - step * 22, step * 7), StringAlignment.Near);
         }
     }
 }

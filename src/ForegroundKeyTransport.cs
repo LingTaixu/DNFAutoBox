@@ -24,7 +24,7 @@ namespace AutoBox
         {
             // Physical number-row keys above QWER; these are not numpad scan codes.
             ushort scan;
-            if (virtualKey >= 0x31 && virtualKey <= 0x35) scan = (ushort)(virtualKey - 0x31 + 0x02);
+            if (virtualKey >= 0x31 && virtualKey <= 0x36) scan = (ushort)(virtualKey - 0x31 + 0x02);
             else if (virtualKey == 0x20) scan = 0x39;
             else throw new ArgumentOutOfRangeException("virtualKey");
             var input = new NativeMethods.Input { Type = 1 };

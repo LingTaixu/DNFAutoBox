@@ -7,6 +7,7 @@ namespace AutoBox
     public sealed class AppSettings
     {
         public int VirtualKey = 0x31;
+        public int Mode = (int)MacroMode.SeriaBox;
         public int ToggleHotkey = 0x77;
         public int StopHotkey = 0x78;
         public int PauseHotkey = 0x79;

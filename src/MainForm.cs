@@ -15,10 +15,19 @@ namespace AutoBox
         public override string ToString() { return Name; }
     }
 
+    internal sealed class ModeChoice
+    {
+        internal MacroMode Mode;
+        private readonly string name;
+        internal ModeChoice(MacroMode mode, string name) { Mode = mode; this.name = name; }
+        public override string ToString() { return name; }
+    }
+
     public sealed class MainForm : Form
     {
         private readonly PixelComboBox windows = MakeCombo(false);
         private readonly PixelComboBox actionKey = MakeCombo(true);
+        private readonly PixelComboBox mode = MakeCombo(false);
         private readonly PixelComboBox toggleKey = MakeCombo(true);
         private readonly PixelComboBox stopKey = MakeCombo(true);
         private readonly PixelComboBox pauseKey = MakeCombo(true);
@@ -47,7 +56,7 @@ namespace AutoBox
             settings = enableHotkeys ? AppSettings.Load() : new AppSettings();
             using (var identity = WindowsIdentity.GetCurrent())
                 Text = "AutoBox · 前台按键循环 · " + (new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator) ? "管理员" : "未提权");
-            ClientSize = new Size(760, 528);
+            ClientSize = new Size(760, 572);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -65,6 +74,9 @@ namespace AutoBox
             SelectKey(toggleKey, settings.ToggleHotkey, 0x77);
             SelectKey(stopKey, settings.StopHotkey, 0x78);
             SelectKey(pauseKey, settings.PauseHotkey, 0x79);
+            mode.Items.Add(new ModeChoice(MacroMode.SeriaBox, "赛利亚盒子模式"));
+            mode.Items.Add(new ModeChoice(MacroMode.DoubleSpace, "双击空格模式"));
+            mode.SelectedIndex = settings.Mode == (int)MacroMode.DoubleSpace ? 1 : 0;
             BuildLayout();
 
             var trayMenu = new ContextMenuStrip();
@@ -87,7 +99,8 @@ namespace AutoBox
                 }
                 var selected = windows.SelectedItem as WindowTarget;
                 bool foreground = selected != null && NativeMethods.GetForegroundWindow() == selected.Handle;
-                SetStatus(foreground ? "循环中 · 前台输入 · " + selected.ProcessName + " · " + actionKey.Text + " → 空格" : "已暂停 · 请切回选中的游戏窗口", false);
+                string sequence = actionKey.Text + (SelectedMode == MacroMode.DoubleSpace ? " → 空格 ×2" : " → 空格");
+                SetStatus(foreground ? "循环中 · " + mode.Text + " · " + sequence : "已暂停 · 请切回选中的游戏窗口", false);
                 tray.Text = foreground ? "AutoBox · 循环中" : "AutoBox · 已暂停，等待游戏前台";
             };
             statusTimer.Start();
@@ -132,7 +145,7 @@ namespace AutoBox
         {
             if (!hotkeysOnly)
             {
-                for (int code = 0x31; code <= 0x35; code++) combo.Items.Add(new KeyChoice(code, ((char)code).ToString()));
+                for (int code = 0x31; code <= 0x36; code++) combo.Items.Add(new KeyChoice(code, ((char)code).ToString()));
                 return;
             }
             for (int i = 0; i < 12; i++) combo.Items.Add(new KeyChoice(0x70 + i, "F" + (i + 1)));
@@ -143,6 +156,7 @@ namespace AutoBox
             foreach (KeyChoice key in combo.Items) if (key.Code == fallback) { combo.SelectedItem = key; return; }
         }
         private static int SelectedKey(ComboBox combo) { return ((KeyChoice)combo.SelectedItem).Code; }
+        private MacroMode SelectedMode { get { return ((ModeChoice)mode.SelectedItem).Mode; } }
 
         private void BuildLayout()
         {
@@ -166,12 +180,13 @@ namespace AutoBox
             var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0), BackColor = PixelTheme.Paper };
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-            AddField(fields, "操作按键 · 主键盘 1–5", actionKey, 0);
-            AddField(fields, "开始 / 停止快捷键", toggleKey, 1);
-            AddField(fields, "停止快捷键", stopKey, 2);
-            AddField(fields, "暂停 / 继续快捷键", pauseKey, 3);
+            AddField(fields, "模式选择", mode, 0);
+            AddField(fields, "操作按键 · 主键盘 1–6", actionKey, 1);
+            AddField(fields, "开始 / 停止快捷键", toggleKey, 2);
+            AddField(fields, "停止快捷键", stopKey, 3);
+            AddField(fields, "暂停 / 继续快捷键", pauseKey, 4);
             settingsPanel.Controls.Add(fields);
-            AddRow(layout, settingsPanel, 224);
+            AddRow(layout, settingsPanel, 268);
             status.BackColor = PixelTheme.Paper;
             statusHost.Dock = DockStyle.Fill;
             statusHost.Margin = new Padding(0, 0, 0, 14);
@@ -273,7 +288,7 @@ namespace AutoBox
 
             var options = new MacroOptions
             {
-                VirtualKey = SelectedKey(actionKey)
+                VirtualKey = SelectedKey(actionKey), Mode = SelectedMode
             };
             SaveSettings();
             cancellation = new CancellationTokenSource();
@@ -316,7 +331,7 @@ namespace AutoBox
         }
         private void SetRunning(bool running)
         {
-            windows.Enabled = refresh.Enabled = actionKey.Enabled = toggleKey.Enabled = stopKey.Enabled = pauseKey.Enabled = !running;
+            windows.Enabled = refresh.Enabled = actionKey.Enabled = mode.Enabled = toggleKey.Enabled = stopKey.Enabled = pauseKey.Enabled = !running;
             start.Enabled = !running;
             stop.Enabled = running;
             pause.Enabled = running;
@@ -350,6 +365,7 @@ namespace AutoBox
         {
             if (!enableGlobalHotkeys) return;
             settings.VirtualKey = SelectedKey(actionKey);
+            settings.Mode = (int)SelectedMode;
             settings.ToggleHotkey = SelectedKey(toggleKey);
             settings.StopHotkey = SelectedKey(stopKey);
             settings.PauseHotkey = SelectedKey(pauseKey);

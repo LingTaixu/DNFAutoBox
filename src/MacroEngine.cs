@@ -4,8 +4,15 @@ using System.Threading.Tasks;
 
 namespace AutoBox
 {
+    public enum MacroMode
+    {
+        SeriaBox = 0,
+        DoubleSpace = 1
+    }
+
     public sealed class MacroOptions
     {
+        public const int DoubleSpaceGapMilliseconds = 50;
         public MacroOptions()
         {
             HoldMilliseconds = 10;
@@ -13,12 +20,14 @@ namespace AutoBox
             LoopGapMilliseconds = 60;
         }
         public int VirtualKey { get; set; }
+        public MacroMode Mode { get; set; }
         public int HoldMilliseconds { get; set; }
         public int ActionGapMilliseconds { get; set; }
         public int LoopGapMilliseconds { get; set; }
         public void Validate()
         {
-            if (VirtualKey < 0x31 || VirtualKey > 0x35) throw new ArgumentOutOfRangeException("VirtualKey", "操作键仅支持主键盘数字 1–5。");
+            if (VirtualKey < 0x31 || VirtualKey > 0x36) throw new ArgumentOutOfRangeException("VirtualKey", "操作键仅支持主键盘数字 1–6。");
+            if (Mode != MacroMode.SeriaBox && Mode != MacroMode.DoubleSpace) throw new ArgumentOutOfRangeException("Mode");
             if (HoldMilliseconds < 10 || HoldMilliseconds > 5000) throw new ArgumentOutOfRangeException("HoldMilliseconds");
             if (ActionGapMilliseconds < 0 || ActionGapMilliseconds > 600000) throw new ArgumentOutOfRangeException("ActionGapMilliseconds");
             if (LoopGapMilliseconds < 10 || LoopGapMilliseconds > 3600000) throw new ArgumentOutOfRangeException("LoopGapMilliseconds");
@@ -78,6 +87,11 @@ namespace AutoBox
                 await PressAsync(options.VirtualKey, options.HoldMilliseconds, transport, cancellation).ConfigureAwait(false);
                 await Task.Delay(options.ActionGapMilliseconds, cancellation).ConfigureAwait(false);
                 await PressAsync(0x20, options.HoldMilliseconds, transport, cancellation).ConfigureAwait(false);
+                if (options.Mode == MacroMode.DoubleSpace)
+                {
+                    await Task.Delay(MacroOptions.DoubleSpaceGapMilliseconds, cancellation).ConfigureAwait(false);
+                    await PressAsync(0x20, options.HoldMilliseconds, transport, cancellation).ConfigureAwait(false);
+                }
                 if (completed != null) completed(++cycles);
                 await Task.Delay(options.LoopGapMilliseconds, cancellation).ConfigureAwait(false);
             }

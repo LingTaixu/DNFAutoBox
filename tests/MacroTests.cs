@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Serialization;
 using AutoBox;
 
 internal static class MacroTests
@@ -70,6 +71,11 @@ internal static class MacroTests
         try
         {
             TestSequence().GetAwaiter().GetResult();
+            TestDoubleSpaceSequence().GetAwaiter().GetResult();
+            TestCancelBetweenSpaces().GetAwaiter().GetResult();
+            TestCancelSecondSpace().GetAwaiter().GetResult();
+            TestDoubleSpaceFocusLoss().GetAwaiter().GetResult();
+            TestModeSettings();
             TestCancelHeld().GetAwaiter().GetResult();
             TestCancelSpace().GetAwaiter().GetResult();
             TestCancelBetweenActions().GetAwaiter().GetResult();
@@ -110,9 +116,105 @@ internal static class MacroTests
         using (var cancel = new CancellationTokenSource(3000))
         {
             var fake = new FakeTransport();
-            await ExpectCancellation(new MacroEngine().RunAsync(Options(), fake,
+            var options = Options();
+            options.VirtualKey = 0x36;
+            await ExpectCancellation(new MacroEngine().RunAsync(options, fake,
                 delegate(long count) { if (count == 2) cancel.Cancel(); }, cancel.Token));
-            Check(string.Join(",", fake.Events) == "down:49,up:49,down:32,up:32,down:49,up:49,down:32,up:32", "repeat number-row 1 then space twice");
+            Check(string.Join(",", fake.Events) == "down:54,up:54,down:32,up:32,down:54,up:54,down:32,up:32", "repeat number-row 6 then space twice");
+        }
+    }
+    private static async Task TestDoubleSpaceSequence()
+    {
+        using (var cancel = new CancellationTokenSource(3000))
+        {
+            var fake = new FakeTransport();
+            var options = Options();
+            options.Mode = MacroMode.DoubleSpace;
+            var gap = new Stopwatch();
+            long measuredGap = 0;
+            int spacePresses = 0;
+            fake.Down = delegate(int key)
+            {
+                if (key == 32 && ++spacePresses == 2) measuredGap = gap.ElapsedMilliseconds;
+            };
+            fake.Up = delegate(int key) { if (key == 32 && spacePresses == 1) gap.Start(); };
+            await ExpectCancellation(new MacroEngine().RunAsync(options, fake,
+                delegate(long count) { if (count == 2) cancel.Cancel(); }, cancel.Token));
+            Check(string.Join(",", fake.Events) == "down:49,up:49,down:32,up:32,down:32,up:32,down:49,up:49,down:32,up:32,down:32,up:32", "double-space mode repeats number key then two space taps");
+            Check(measuredGap >= 45, "second space waits approximately 50ms after first space release");
+        }
+    }
+    private static async Task TestCancelBetweenSpaces()
+    {
+        using (var cancel = new CancellationTokenSource(3000))
+        {
+            var fake = new FakeTransport();
+            var options = Options();
+            options.Mode = MacroMode.DoubleSpace;
+            long completed = 0;
+            fake.Up = delegate(int key) { if (key == 32) cancel.Cancel(); };
+            await ExpectCancellation(new MacroEngine().RunAsync(options, fake,
+                delegate(long count) { completed = count; }, cancel.Token));
+            Check(string.Join(",", fake.Events) == "down:49,up:49,down:32,up:32" && completed == 0, "stop between spaces skips second space and does not complete the cycle");
+        }
+    }
+    private static async Task TestCancelSecondSpace()
+    {
+        using (var cancel = new CancellationTokenSource(3000))
+        {
+            var fake = new FakeTransport();
+            var options = Options();
+            options.Mode = MacroMode.DoubleSpace;
+            int spacePresses = 0;
+            fake.Down = delegate(int key) { if (key == 32 && ++spacePresses == 2) cancel.Cancel(); };
+            await ExpectCancellation(new MacroEngine().RunAsync(options, fake, null, cancel.Token));
+            Check(string.Join(",", fake.Events) == "down:49,up:49,down:32,up:32,down:32,up:32", "stop while holding second space still releases it");
+        }
+    }
+    private static async Task TestDoubleSpaceFocusLoss()
+    {
+        using (var cancel = new CancellationTokenSource(3000))
+        {
+            var keyboard = new FakeKeyboard { Foreground = true };
+            var firstSpaceReleased = new TaskCompletionSource<bool>();
+            int releases = 0;
+            keyboard.OnSend = delegate(int key, bool up)
+            {
+                if (key == 32 && up && ++releases == 1)
+                {
+                    keyboard.Foreground = false;
+                    firstSpaceReleased.SetResult(true);
+                }
+            };
+            var options = Options();
+            options.Mode = MacroMode.DoubleSpace;
+            Task run = new MacroEngine().RunAsync(options, Transport(keyboard), delegate(long count) { cancel.Cancel(); }, cancel.Token);
+            if (await Task.WhenAny(firstSpaceReleased.Task, Task.Delay(2000)) != firstSpaceReleased.Task)
+                throw new Exception("First space did not finish in time.");
+            await Task.Delay(100);
+            Check(keyboard.Log == "down:49,up:49,down:32,up:32", "losing focus between spaces pauses before the second press");
+            keyboard.Foreground = true;
+            await ExpectCancellation(run);
+            Check(keyboard.Log == "down:49,up:49,down:32,up:32,down:32,up:32", "returning to foreground completes the pending second space");
+        }
+    }
+    private static void TestModeSettings()
+    {
+        var serializer = new XmlSerializer(typeof(AppSettings));
+        using (var text = new StringReader("<AppSettings><VirtualKey>54</VirtualKey></AppSettings>"))
+        {
+            var old = (AppSettings)serializer.Deserialize(text);
+            Check(old.Mode == (int)MacroMode.SeriaBox && old.VirtualKey == 54, "old settings keep the original single-space mode");
+        }
+        var settings = new AppSettings { Mode = (int)MacroMode.DoubleSpace, VirtualKey = 54 };
+        using (var output = new StringWriter())
+        {
+            serializer.Serialize(output, settings);
+            using (var input = new StringReader(output.ToString()))
+            {
+                var restored = (AppSettings)serializer.Deserialize(input);
+                Check(restored.Mode == (int)MacroMode.DoubleSpace && restored.VirtualKey == 54, "selected double-space mode survives settings serialization");
+            }
         }
     }
     private static async Task TestCancelHeld()
@@ -296,17 +398,33 @@ internal static class MacroTests
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ui-preview.png"));
             }
-            var action = FindCombo(form, "操作按键 · 主键盘 1–5");
+            var action = FindCombo(form, "操作按键 · 主键盘 1–6");
             if (action == null) throw new Exception("Action key selector missing.");
             action.Focus();
-            action.DroppedDown = true;
-            Application.DoEvents();
+            // Select while closed: an open native list can also follow the real mouse pointer.
             SendMessage(action.Handle, 0x0100, new IntPtr((int)Keys.Down), IntPtr.Zero);
             SendMessage(action.Handle, 0x0101, new IntPtr((int)Keys.Down), IntPtr.Zero);
+            Application.DoEvents();
+            bool actionSelectedByKeyboard = action.Text == "2";
+            action.DroppedDown = true;
+            Application.DoEvents();
             SendMessage(action.Handle, 0x0100, new IntPtr((int)Keys.Enter), IntPtr.Zero);
             SendMessage(action.Handle, 0x0101, new IntPtr((int)Keys.Enter), IntPtr.Zero);
             Application.DoEvents();
-            Check(action.Text == "2" && !action.DroppedDown, "pixel dropdown supports native arrow-key selection and Enter confirmation");
+            Check(actionSelectedByKeyboard && !action.DroppedDown, "pixel dropdown supports native arrow-key selection and Enter confirmation");
+            var mode = FindCombo(form, "模式选择");
+            if (mode == null) throw new Exception("Mode selector missing.");
+            mode.Focus();
+            SendMessage(mode.Handle, 0x0100, new IntPtr((int)Keys.Down), IntPtr.Zero);
+            SendMessage(mode.Handle, 0x0101, new IntPtr((int)Keys.Down), IntPtr.Zero);
+            Application.DoEvents();
+            bool modeSelectedByKeyboard = mode.Text == "双击空格模式";
+            mode.DroppedDown = true;
+            Application.DoEvents();
+            SendMessage(mode.Handle, 0x0100, new IntPtr((int)Keys.Enter), IntPtr.Zero);
+            SendMessage(mode.Handle, 0x0101, new IntPtr((int)Keys.Enter), IntPtr.Zero);
+            Application.DoEvents();
+            Check(modeSelectedByKeyboard && !mode.DroppedDown, "mode dropdown switches from Seria box to double-space using the keyboard");
             // Close follows normal disposal so the tray icon and timer are released too.
             form.Close();
             Check(true, "main window constructs and renders successfully");
