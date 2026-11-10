@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Xml.Serialization;
 
-namespace AutoBox
+namespace AutoTools
 {
     public sealed class AppSettings
     {
@@ -12,17 +12,31 @@ namespace AutoBox
         public int StopHotkey = 0x78;
         public int PauseHotkey = 0x79;
         public string ProcessName = "";
+        public bool MousePointConfigured;
+        public int MouseClientX;
+        public int MouseClientY;
+        public int MouseCapturedWidth;
+        public int MouseCapturedHeight;
+        public int MouseExpectedWidth = 1280;
+        public int MouseExpectedHeight = 720;
+        public int MouseCaptureHotkey = 0x76;
+        public int MouseLoopGapMilliseconds = 500;
+        public string MousePointProcessName = "";
+        public bool LoopForever = true;
+        public int LoopCount = 1;
 
         public static string FilePath
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoBox", "settings.xml"); }
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoTools", "settings.xml"); }
         }
         public static AppSettings Load()
         {
             try
             {
-                if (File.Exists(FilePath))
-                    using (var stream = File.OpenRead(FilePath))
+                string source = FilePath;
+                if (!File.Exists(source)) source = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoBox", "settings.xml");
+                if (File.Exists(source))
+                    using (var stream = File.OpenRead(source))
                         return (AppSettings)new XmlSerializer(typeof(AppSettings)).Deserialize(stream);
             }
             catch (InvalidOperationException) { }

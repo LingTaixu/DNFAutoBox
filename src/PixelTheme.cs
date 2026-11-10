@@ -1,5 +1,5 @@
 // Native WinForms adaptation of NES.css 2.3.0 (MIT).
-// Original: Copyright (c) 2018 B.C.Rikko. See embedded AutoBox.NES-LICENSE.txt.
+// Original: Copyright (c) 2018 B.C.Rikko. See embedded AutoTools.NES-LICENSE.txt.
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -9,7 +9,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace AutoBox
+namespace AutoTools
 {
     internal static class PixelTheme
     {
@@ -33,7 +33,7 @@ namespace AutoBox
         static PixelTheme()
         {
             var assembly = Assembly.GetExecutingAssembly();
-            using (Stream stream = assembly.GetManifestResourceStream("AutoBox.PixelFont.ttf"))
+            using (Stream stream = assembly.GetManifestResourceStream("AutoTools.PixelFont.ttf"))
             {
                 if (stream == null) throw new InvalidOperationException("缺少内嵌像素字体，请重新构建程序。");
                 var bytes = new byte[checked((int)stream.Length)];
@@ -57,7 +57,7 @@ namespace AutoBox
             PixelFamily = PixelFonts.Families[0];
             NumberFont = new Font(PixelFamily, 12F, FontStyle.Regular, GraphicsUnit.Point);
             TitleFont = new Font(PixelFamily, 18F, FontStyle.Regular, GraphicsUnit.Point);
-            using (Stream stream = assembly.GetManifestResourceStream("AutoBox.App.ico"))
+            using (Stream stream = assembly.GetManifestResourceStream("AutoTools.App.ico"))
                 AppIcon = stream == null ? SystemIcons.Application : new Icon(stream);
         }
 
@@ -260,8 +260,8 @@ namespace AutoBox
                 for (int column = 0; column < 3; column++)
                     PixelTheme.Fill(graphics, PixelTheme.Ink, new Rectangle(step * (3 + column * 3), step * (5 + row * 3), step * 2, step * 2));
             PixelTheme.Fill(graphics, PixelTheme.Ink, new Rectangle(step * 3, step * 11, step * 8, step));
-            PixelTheme.Text(graphics, "AUTO BOX", PixelTheme.TitleFont, PixelTheme.Ink, new Rectangle(step * 22, 0, Width - step * 22, step * 12), StringAlignment.Near);
-            PixelTheme.Text(graphics, "按键循环  ·  by 陈碎碎  如果觉得好用记得把不要的+12增幅邮寄陈碎碎", PixelTheme.BodyFont, PixelTheme.Muted, new Rectangle(step * 22, step * 12, Width - step * 22, step * 7), StringAlignment.Near);
+            PixelTheme.Text(graphics, "AUTO TOOLS", PixelTheme.TitleFont, PixelTheme.Ink, new Rectangle(step * 22, 0, Width - step * 22, step * 12), StringAlignment.Near);
+            PixelTheme.Text(graphics, "前台输入循环  ·  by 陈碎碎  如果觉得好用记得把不要的+12增幅邮寄陈碎碎", PixelTheme.BodyFont, PixelTheme.Muted, new Rectangle(step * 22, step * 12, Width - step * 22, step * 7), StringAlignment.Near);
         }
     }
 }

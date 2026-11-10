@@ -2,12 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace AutoBox
+namespace AutoTools
 {
     public enum MacroMode
     {
         SeriaBox = 0,
-        DoubleSpace = 1
+        DoubleSpace = 1,
+        Amplification = 2
     }
 
     public sealed class MacroOptions
@@ -24,6 +25,7 @@ namespace AutoBox
         public int HoldMilliseconds { get; set; }
         public int ActionGapMilliseconds { get; set; }
         public int LoopGapMilliseconds { get; set; }
+        public int LoopCount { get; set; } // Zero means keep running until stopped.
         public void Validate()
         {
             if (VirtualKey < 0x31 || VirtualKey > 0x36) throw new ArgumentOutOfRangeException("VirtualKey", "操作键仅支持主键盘数字 1–6。");
@@ -31,6 +33,7 @@ namespace AutoBox
             if (HoldMilliseconds < 10 || HoldMilliseconds > 5000) throw new ArgumentOutOfRangeException("HoldMilliseconds");
             if (ActionGapMilliseconds < 0 || ActionGapMilliseconds > 600000) throw new ArgumentOutOfRangeException("ActionGapMilliseconds");
             if (LoopGapMilliseconds < 10 || LoopGapMilliseconds > 3600000) throw new ArgumentOutOfRangeException("LoopGapMilliseconds");
+            if (LoopCount < 0 || LoopCount > 1000000000) throw new ArgumentOutOfRangeException("LoopCount");
         }
     }
 
@@ -92,7 +95,10 @@ namespace AutoBox
                     await Task.Delay(MacroOptions.DoubleSpaceGapMilliseconds, cancellation).ConfigureAwait(false);
                     await PressAsync(0x20, options.HoldMilliseconds, transport, cancellation).ConfigureAwait(false);
                 }
-                if (completed != null) completed(++cycles);
+                cycles++;
+                if (completed != null) completed(cycles);
+                cancellation.ThrowIfCancellationRequested();
+                if (options.LoopCount > 0 && cycles >= options.LoopCount) return;
                 await Task.Delay(options.LoopGapMilliseconds, cancellation).ConfigureAwait(false);
             }
         }

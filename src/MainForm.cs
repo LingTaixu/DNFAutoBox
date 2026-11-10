@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace AutoBox
+namespace AutoTools
 {
     internal sealed class KeyChoice
     {
@@ -23,7 +23,7 @@ namespace AutoBox
         public override string ToString() { return name; }
     }
 
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
         private readonly PixelComboBox windows = MakeCombo(false);
         private readonly PixelComboBox actionKey = MakeCombo(true);
@@ -31,6 +31,10 @@ namespace AutoBox
         private readonly PixelComboBox toggleKey = MakeCombo(true);
         private readonly PixelComboBox stopKey = MakeCombo(true);
         private readonly PixelComboBox pauseKey = MakeCombo(true);
+        private readonly CheckBox loopForever = new CheckBox { Text = "一直循环", AutoSize = false, Width = 100, Height = 32 };
+        private readonly NumericUpDown loopCount = MakeNumber(1, 1000000000);
+        private long completedCycles;
+        private int runningLoopLimit;
         private readonly PixelButton refresh = new PixelButton { Text = "刷新窗口", Width = 100, Height = 40 };
         private readonly PixelButton start = new PixelButton { Text = "开始循环", Kind = PixelButtonKind.Primary };
         private readonly PixelButton stop = new PixelButton { Text = "停止", Kind = PixelButtonKind.Stop, Enabled = false };
@@ -55,7 +59,7 @@ namespace AutoBox
             enableGlobalHotkeys = enableHotkeys;
             settings = enableHotkeys ? AppSettings.Load() : new AppSettings();
             using (var identity = WindowsIdentity.GetCurrent())
-                Text = "AutoBox · 前台按键循环 · " + (new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator) ? "管理员" : "未提权");
+                Text = "auto-tools · 前台输入循环 · " + (new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator) ? "管理员" : "未提权");
             ClientSize = new Size(760, 572);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -70,14 +74,22 @@ namespace AutoBox
             FillKeys(toggleKey, true);
             FillKeys(stopKey, true);
             FillKeys(pauseKey, true);
+            FillKeys(captureKey, true);
             SelectKey(actionKey, settings.VirtualKey, 0x31);
             SelectKey(toggleKey, settings.ToggleHotkey, 0x77);
             SelectKey(stopKey, settings.StopHotkey, 0x78);
             SelectKey(pauseKey, settings.PauseHotkey, 0x79);
+            SelectKey(captureKey, settings.MouseCaptureHotkey, 0x76);
             mode.Items.Add(new ModeChoice(MacroMode.SeriaBox, "赛利亚盒子模式"));
             mode.Items.Add(new ModeChoice(MacroMode.DoubleSpace, "双击空格模式"));
-            mode.SelectedIndex = settings.Mode == (int)MacroMode.DoubleSpace ? 1 : 0;
+            mode.Items.Add(new ModeChoice(MacroMode.Amplification, "赌增幅强化"));
+            mode.SelectedIndex = settings.Mode >= 0 && settings.Mode <= 2 ? settings.Mode : 0;
+            loopForever.Checked = settings.LoopForever;
+            loopCount.Value = Clamp(settings.LoopCount, 1, 1000000000, 1);
+            loopCount.Enabled = !loopForever.Checked;
+            loopForever.CheckedChanged += delegate { loopCount.Enabled = !loopForever.Checked && cancellation == null; };
             BuildLayout();
+            InitializeMouseControls();
 
             var trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("显示窗口", null, delegate { RestoreWindow(); });
@@ -85,23 +97,30 @@ namespace AutoBox
             trayMenu.Items.Add("停止", null, delegate { RequestStop(); });
             trayMenu.Items.Add("暂停 / 继续", null, delegate { TogglePause(); });
             trayMenu.Items.Add("退出", null, delegate { Close(); });
-            tray = new NotifyIcon { Icon = Icon, Text = "AutoBox · 已停止", ContextMenuStrip = trayMenu, Visible = true };
+            tray = new NotifyIcon { Icon = Icon, Text = "auto-tools · 已停止", ContextMenuStrip = trayMenu, Visible = true };
             tray.DoubleClick += delegate { RestoreWindow(); };
             statusTimer = new System.Windows.Forms.Timer { Interval = 150 };
             statusTimer.Tick += delegate
             {
                 if (cancellation == null || cancellation.IsCancellationRequested) return;
+                if (mouseTransport != null)
+                {
+                    var state = mouseState;
+                    if (state != null) SetStatus(state.Message + LoopProgress(), state.State == MouseRunState.SizeMismatch || state.State == MouseRunState.DpiUnsupported);
+                    tray.Text = "auto-tools · " + (state == null ? "鼠标循环启动中" : state.Ready ? "鼠标循环中" : "鼠标循环已暂停");
+                    return;
+                }
                 if (pauseTransport != null && pauseTransport.IsPaused)
                 {
-                    SetStatus("已手动暂停 · 按 " + pauseKey.Text + " 或点击继续恢复", false);
-                    tray.Text = "AutoBox · 已手动暂停";
+                    SetStatus("已手动暂停 · 按 " + pauseKey.Text + " 或点击继续恢复" + LoopProgress(), false);
+                    tray.Text = "auto-tools · 已手动暂停";
                     return;
                 }
                 var selected = windows.SelectedItem as WindowTarget;
                 bool foreground = selected != null && NativeMethods.GetForegroundWindow() == selected.Handle;
                 string sequence = actionKey.Text + (SelectedMode == MacroMode.DoubleSpace ? " → 空格 ×2" : " → 空格");
-                SetStatus(foreground ? "循环中 · " + mode.Text + " · " + sequence : "已暂停 · 请切回选中的游戏窗口", false);
-                tray.Text = foreground ? "AutoBox · 循环中" : "AutoBox · 已暂停，等待游戏前台";
+                SetStatus((foreground ? "循环中 · " + mode.Text + " · " + sequence : "已暂停 · 请切回选中的游戏窗口") + LoopProgress(), false);
+                tray.Text = foreground ? "auto-tools · 循环中" : "auto-tools · 已暂停，等待游戏前台";
             };
             statusTimer.Start();
             refresh.Click += delegate { RefreshWindows(); };
@@ -111,7 +130,10 @@ namespace AutoBox
             toggleKey.SelectedIndexChanged += delegate { HotkeysChanged(); };
             stopKey.SelectedIndexChanged += delegate { HotkeysChanged(); };
             pauseKey.SelectedIndexChanged += delegate { HotkeysChanged(); };
-            Shown += delegate { if (enableGlobalHotkeys) RegisterHotkeys(); };
+            captureKey.SelectedIndexChanged += delegate { HotkeysChanged(); };
+            mode.SelectedIndexChanged += delegate { UpdateModeView(); HotkeysChanged(); };
+            windows.SelectedIndexChanged += delegate { MouseTargetChanged(); };
+            Shown += delegate { UpdateModeView(); if (enableGlobalHotkeys) RegisterHotkeys(); };
             Resize += delegate
             {
                 if (WindowState == FormWindowState.Minimized)
@@ -126,6 +148,7 @@ namespace AutoBox
                 NativeMethods.UnregisterHotKey(Handle, 1);
                 NativeMethods.UnregisterHotKey(Handle, 2);
                 NativeMethods.UnregisterHotKey(Handle, 3);
+                NativeMethods.UnregisterHotKey(Handle, 4);
                 statusTimer.Dispose();
                 tray.Visible = false;
                 tray.Dispose();
@@ -160,7 +183,7 @@ namespace AutoBox
 
         private void BuildLayout()
         {
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 0, BackColor = PixelTheme.Canvas };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 0, BackColor = PixelTheme.Canvas };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             AddRow(layout, new PixelHeader { Dock = DockStyle.Fill, BackColor = PixelTheme.Canvas, TabStop = false, Margin = new Padding(0) }, 66);
             AddRow(layout, new Label { Text = "目标游戏窗口", Dock = DockStyle.Fill }, 26);
@@ -182,11 +205,22 @@ namespace AutoBox
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
             AddField(fields, "模式选择", mode, 0);
             AddField(fields, "操作按键 · 主键盘 1–6", actionKey, 1);
-            AddField(fields, "开始 / 停止快捷键", toggleKey, 2);
-            AddField(fields, "停止快捷键", stopKey, 3);
-            AddField(fields, "暂停 / 继续快捷键", pauseKey, 4);
+            actionLabel = fields.GetControlFromPosition(0, 1);
+            keyFields = fields;
+            var repeats = new FlowLayoutPanel { Height = 38, WrapContents = false, Margin = new Padding(0) };
+            repeats.Controls.Add(loopForever);
+            repeats.Controls.Add(loopCount);
+            loopCount.Width = 102;
+            AddField(fields, "循环次数 · 取消勾选后指定次数", repeats, 2);
+            repeats.Width = 220;
+            AddField(fields, "开始 / 停止快捷键", toggleKey, 3);
+            AddField(fields, "停止快捷键", stopKey, 4);
+            AddField(fields, "暂停 / 继续快捷键", pauseKey, 5);
             settingsPanel.Controls.Add(fields);
-            AddRow(layout, settingsPanel, 268);
+            AddRow(layout, settingsPanel, 312);
+            settingsRow = layout.RowStyles[layout.RowStyles.Count - 1];
+            AddRow(layout, BuildMousePanel(), 0);
+            mouseRow = layout.RowStyles[layout.RowStyles.Count - 1];
             status.BackColor = PixelTheme.Paper;
             statusHost.Dock = DockStyle.Fill;
             statusHost.Margin = new Padding(0, 0, 0, 14);
@@ -244,24 +278,29 @@ namespace AutoBox
         }
         private void RegisterHotkeys()
         {
+            captureHotkeyRegistered = false;
             NativeMethods.UnregisterHotKey(Handle, 1);
             NativeMethods.UnregisterHotKey(Handle, 2);
             NativeMethods.UnregisterHotKey(Handle, 3);
+            NativeMethods.UnregisterHotKey(Handle, 4);
             if (!HotkeysAreDistinct())
             {
-                SetStatus("三个快捷键必须不同，请重新选择。", true);
+                SetStatus("控制快捷键和取点快捷键必须不同，请重新选择。", true);
                 return;
             }
             bool toggleOk = NativeMethods.RegisterHotKey(Handle, 1, 0x4000, (uint)SelectedKey(toggleKey));
             bool stopOk = NativeMethods.RegisterHotKey(Handle, 2, 0x4000, (uint)SelectedKey(stopKey));
             bool pauseOk = NativeMethods.RegisterHotKey(Handle, 3, 0x4000, (uint)SelectedKey(pauseKey));
-            if (!toggleOk || !stopOk || !pauseOk)
-                SetStatus("快捷键被占用：" + (!toggleOk ? toggleKey.Text + " " : "") + (!stopOk ? stopKey.Text + " " : "") + (!pauseOk ? pauseKey.Text : "") + "；请换键或使用按钮。", true);
-            else SetStatus("已停止 · " + toggleKey.Text + " 开始 / 停止，" + stopKey.Text + " 停止，" + pauseKey.Text + " 暂停 / 继续", false);
+            captureHotkeyRegistered = SelectedMode != MacroMode.Amplification || NativeMethods.RegisterHotKey(Handle, 4, 0x4000, (uint)SelectedKey(captureKey));
+            if (!toggleOk || !stopOk || !pauseOk || !captureHotkeyRegistered)
+                SetStatus("快捷键被占用：" + (!toggleOk ? toggleKey.Text + " " : "") + (!stopOk ? stopKey.Text + " " : "") + (!pauseOk ? pauseKey.Text + " " : "") + (!captureHotkeyRegistered ? captureKey.Text : "") + "；请换键或使用按钮。", true);
+            else SetStatus(SelectedMode == MacroMode.Amplification ? MouseIdleStatus() : "已停止 · " + toggleKey.Text + " 开始 / 停止，" + stopKey.Text + " 停止，" + pauseKey.Text + " 暂停 / 继续", false);
         }
         private bool HotkeysAreDistinct()
         {
-            return SelectedKey(toggleKey) != SelectedKey(stopKey) && SelectedKey(toggleKey) != SelectedKey(pauseKey) && SelectedKey(stopKey) != SelectedKey(pauseKey);
+            return SelectedMode == MacroMode.Amplification
+                ? HotkeyRules.AreDistinct(SelectedKey(toggleKey), SelectedKey(stopKey), SelectedKey(pauseKey), SelectedKey(captureKey))
+                : HotkeyRules.AreDistinct(SelectedKey(toggleKey), SelectedKey(stopKey), SelectedKey(pauseKey));
         }
         protected override void WndProc(ref Message message)
         {
@@ -270,6 +309,7 @@ namespace AutoBox
                 if (message.WParam.ToInt32() == 1) Toggle();
                 if (message.WParam.ToInt32() == 2) RequestStop();
                 if (message.WParam.ToInt32() == 3) TogglePause();
+                if (message.WParam.ToInt32() == 4) CaptureMousePoint();
             }
             base.WndProc(ref message);
         }
@@ -282,30 +322,37 @@ namespace AutoBox
         private async void StartLoop()
         {
             if (cancellation != null || closing) return;
+            if (!TryReleasePendingInput()) return;
             var target = windows.SelectedItem as WindowTarget;
             if (target == null) { RestoreWindow(); SetStatus("请先启动游戏，刷新并选择目标窗口。", true); return; }
-            if (!HotkeysAreDistinct()) { SetStatus("三个快捷键必须不同。", true); return; }
+            if (!HotkeysAreDistinct()) { SetStatus("控制快捷键和取点快捷键必须不同。", true); return; }
+
+            if (SelectedMode == MacroMode.Amplification) { await StartMouseLoopAsync(target); return; }
 
             var options = new MacroOptions
             {
-                VirtualKey = SelectedKey(actionKey), Mode = SelectedMode
+                VirtualKey = SelectedKey(actionKey), Mode = SelectedMode, LoopCount = SelectedLoopLimit
             };
             SaveSettings();
             cancellation = new CancellationTokenSource();
             CancellationToken token = cancellation.Token;
             var transport = new PausableKeyTransport(new ForegroundKeyTransport(target));
             pauseTransport = transport;
+            completedCycles = 0;
+            runningLoopLimit = options.LoopCount;
             SetRunning(true);
             SetStatus("循环已启动 · 游戏在前台时发送按键，切走自动暂停", false);
-            tray.Text = "AutoBox · 循环中";
+            tray.Text = "auto-tools · 循环中";
             Exception failure = null;
+            bool finished = false;
             try
             {
                 runningTask = Task.Run(delegate
                 {
-                    return new MacroEngine().RunAsync(options, transport, null, token);
+                    return new MacroEngine().RunAsync(options, transport, delegate(long count) { Interlocked.Exchange(ref completedCycles, count); }, token);
                 });
                 await runningTask;
+                finished = true;
             }
             catch (OperationCanceledException) { }
             catch (Exception error) { failure = error; }
@@ -316,17 +363,21 @@ namespace AutoBox
                 cancellation = null;
                 pauseTransport = null;
                 SetRunning(false);
-                tray.Text = "AutoBox · 已停止";
-                SetStatus(failure == null ? "已停止" : "已停止 · " + failure.Message, failure != null);
+                tray.Text = "auto-tools · 已停止";
+                SetStatus(failure == null ? (finished ? "已完成 " + Interlocked.Read(ref completedCycles) + " 次循环" : "已停止 · 已完成 " + Interlocked.Read(ref completedCycles) + " 次循环") : "已停止 · " + failure.Message, failure != null);
                 if (closeAfterStop) BeginInvoke(new Action(Close));
             }
         }
         private void RequestStop()
         {
+            bool wasCapturing = waitingForPoint;
+            CancelMouseCapture();
+            if (wasCapturing) SetStatus("已取消取点 · 保留原坐标", false);
+            if (cancellation == null && (pendingMouseRelease != null || pendingKeyboardRelease != null)) { TryReleasePendingInput(); return; }
             if (cancellation == null || cancellation.IsCancellationRequested) return;
             stop.Enabled = false;
             pause.Enabled = false;
-            SetStatus("正在停止并释放按键…", false);
+            SetStatus(mouseTransport != null ? "正在停止并释放按键与鼠标…" : "正在停止并释放按键…", false);
             cancellation.Cancel();
         }
         private void SetRunning(bool running)
@@ -336,9 +387,22 @@ namespace AutoBox
             stop.Enabled = running;
             pause.Enabled = running;
             pause.Text = "暂停";
+            loopForever.Enabled = !running;
+            loopCount.Enabled = !running && !loopForever.Checked;
+            SetMouseControlsEnabled(!running);
+            if (pendingMouseRelease != null || pendingKeyboardRelease != null) { start.Enabled = false; stop.Enabled = true; }
         }
         private void TogglePause()
         {
+            if (mouseTransport != null && cancellation != null && !cancellation.IsCancellationRequested)
+            {
+                mouseTransport.IsPaused = !mouseTransport.IsPaused;
+                pause.Text = mouseTransport.IsPaused ? "继续" : "暂停";
+                mouseState = MouseTargetService.Wait(mouseTransport.IsPaused ? MouseRunState.ManualPause : MouseRunState.WaitingForeground,
+                    mouseTransport.IsPaused ? "已手动暂停 · 按暂停快捷键或点击继续恢复" : "已继续 · 等待游戏前台");
+                SetStatus(mouseState.Message, false);
+                return;
+            }
             if (cancellation == null || cancellation.IsCancellationRequested || pauseTransport == null) return;
             pauseTransport.IsPaused = !pauseTransport.IsPaused;
             pause.Text = pauseTransport.IsPaused ? "继续" : "暂停";
@@ -369,6 +433,9 @@ namespace AutoBox
             settings.ToggleHotkey = SelectedKey(toggleKey);
             settings.StopHotkey = SelectedKey(stopKey);
             settings.PauseHotkey = SelectedKey(pauseKey);
+            settings.LoopForever = loopForever.Checked;
+            settings.LoopCount = (int)loopCount.Value;
+            SaveMouseSettings();
             var target = windows.SelectedItem as WindowTarget;
             if (target != null) settings.ProcessName = target.ProcessName;
             try { settings.Save(); }
@@ -377,6 +444,7 @@ namespace AutoBox
         }
         private void OnClosing(object sender, FormClosingEventArgs args)
         {
+            if (cancellation == null && !TryReleasePendingInput()) { args.Cancel = true; closing = false; return; }
             closing = true;
             if (cancellation != null)
             {

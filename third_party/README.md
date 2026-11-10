@@ -8,5 +8,5 @@
 - 原生控件实现在 `src/PixelTheme.cs`，包括像素按钮、下拉选择器、边框面板、状态面板和标题。
 - Press Start 2P 字体来源：https://github.com/google/fonts/tree/main/ofl/pressstart2p
 - 字体采用 SIL Open Font License 1.1，见 `assets/fonts/OFL-PressStart2P.txt`。
-- 字体及其许可证、NES.css 许可证均嵌入 AutoBox.exe，可直接分发单个 EXE。
+- 字体及其许可证、NES.css 许可证均嵌入 auto-tools.exe，可直接分发单个 EXE。
 - 中文使用系统字体，以保证中文窗口标题和控件标签可读；英文标题、数字和功能键使用像素字体。

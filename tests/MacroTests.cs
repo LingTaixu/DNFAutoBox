@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.Serialization;
-using AutoBox;
+using AutoTools;
 
 internal static class MacroTests
 {
@@ -47,7 +47,7 @@ internal static class MacroTests
         internal readonly List<uint> Parameters = new List<uint>();
         internal Receiver()
         {
-            Text = "AutoBox test receiver";
+            Text = "AutoTools test receiver";
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(-10000, -10000);
@@ -66,10 +66,11 @@ internal static class MacroTests
     }
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
         try
         {
+            Console.WriteLine("Logic test process: " + (IntPtr.Size * 8) + "-bit");
             TestSequence().GetAwaiter().GetResult();
             TestDoubleSpaceSequence().GetAwaiter().GetResult();
             TestCancelBetweenSpaces().GetAwaiter().GetResult();
@@ -87,8 +88,13 @@ internal static class MacroTests
             TestFocusRace().GetAwaiter().GetResult();
             TestManualPauseAndResume().GetAwaiter().GetResult();
             TestManualPauseWhileHeld().GetAwaiter().GetResult();
-            TestNativeTargetValidation();
-            TestUiPreview();
+            TestFiniteLoops().GetAwaiter().GetResult();
+            MouseTests.Run().GetAwaiter().GetResult();
+            if (Array.IndexOf(args, "--interactive") >= 0)
+            {
+                TestNativeTargetValidation();
+                TestUiPreview();
+            }
             Console.WriteLine("PASS: " + passed + " checks");
             return 0;
         }
@@ -428,6 +434,25 @@ internal static class MacroTests
             // Close follows normal disposal so the tray icon and timer are released too.
             form.Close();
             Check(true, "main window constructs and renders successfully");
+        }
+    }
+    private static async Task TestFiniteLoops()
+    {
+        foreach (MacroMode mode in new[] { MacroMode.SeriaBox, MacroMode.DoubleSpace })
+        {
+            foreach (int limit in new[] { 1, 3 })
+            {
+                var options = Options(); options.Mode = mode; options.LoopCount = limit;
+                if (limit == 1) options.LoopGapMilliseconds = 3600000;
+                var fake = new FakeTransport();
+                long completed = 0;
+                using (var cancel = new CancellationTokenSource(2500))
+                {
+                    await new MacroEngine().RunAsync(options, fake, delegate(long count) { completed = count; }, cancel.Token);
+                    Check(completed == limit && fake.Events.Count == limit * (mode == MacroMode.DoubleSpace ? 6 : 4),
+                        mode + " completes exactly " + limit + " cycles and skips the final loop gap");
+                }
+            }
         }
     }
     private static ComboBox FindCombo(Control parent, string name)

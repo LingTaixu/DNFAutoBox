@@ -2,7 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace AutoBox
+namespace AutoTools
 {
     public interface IForegroundKeyboardBackend
     {
@@ -26,6 +26,7 @@ namespace AutoBox
             ushort scan;
             if (virtualKey >= 0x31 && virtualKey <= 0x36) scan = (ushort)(virtualKey - 0x31 + 0x02);
             else if (virtualKey == 0x20) scan = 0x39;
+            else if (virtualKey == 0x0D) scan = 0x1C;
             else throw new ArgumentOutOfRangeException("virtualKey");
             var input = new NativeMethods.Input { Type = 1 };
             input.Data.Keyboard.ScanCode = scan;
@@ -52,6 +53,8 @@ namespace AutoBox
             this.backend = backend;
         }
         public bool IsReady { get { return backend.IsTargetForeground(target); } }
+        public bool HasHeldKey { get { return heldKey != 0; } }
+        public void ReleaseHeldKey() { if (heldKey != 0) KeyUp(heldKey); }
         public void KeyDown(int virtualKey)
         {
             if (!IsReady) throw new TargetFocusChangedException();

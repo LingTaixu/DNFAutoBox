@@ -1,4 +1,4 @@
-param([switch]$Test, [string]$OutputName = 'AutoBox.exe')
+param([switch]$Test, [switch]$InteractiveTest, [string]$OutputName = 'auto-tools.exe', [ValidateSet('anycpu', 'x86', 'x64')][string]$TestPlatform = 'anycpu')
 $ErrorActionPreference = 'Stop'
 if ([IO.Path]::GetFileName($OutputName) -ne $OutputName -or [IO.Path]::GetExtension($OutputName) -ne '.exe') {
     throw 'OutputName must be an executable file name without a directory.'
@@ -24,15 +24,18 @@ function Invoke-TaskCompiler([string[]]$CompilerArguments) {
     finally { Remove-Item $responseFile -ErrorAction SilentlyContinue }
 }
 $uiResources = @(
-    "/resource:$taskRoot\assets\fonts\PressStart2P-Regular.ttf,AutoBox.PixelFont.ttf",
-    "/resource:$taskRoot\assets\fonts\OFL-PressStart2P.txt,AutoBox.OFL-PressStart2P.txt",
-    "/resource:$taskRoot\third_party\nes.css\LICENSE,AutoBox.NES-LICENSE.txt",
-    "/resource:$taskRoot\assets\autobox.ico,AutoBox.App.ico"
+    "/resource:$taskRoot\assets\fonts\PressStart2P-Regular.ttf,AutoTools.PixelFont.ttf",
+    "/resource:$taskRoot\assets\fonts\OFL-PressStart2P.txt,AutoTools.OFL-PressStart2P.txt",
+    "/resource:$taskRoot\third_party\nes.css\LICENSE,AutoTools.NES-LICENSE.txt",
+    "/resource:$taskRoot\assets\auto-tools.ico,AutoTools.App.ico"
 )
-Invoke-TaskCompiler (@('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/utf8output', '/codepage:65001', "/out:$applicationPath", "/win32manifest:$taskRoot\app.manifest", "/win32icon:$taskRoot\assets\autobox.ico", '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll') + $uiResources + $sources)
+Invoke-TaskCompiler (@('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/utf8output', '/codepage:65001', "/out:$applicationPath", "/win32manifest:$taskRoot\app.manifest", "/win32icon:$taskRoot\assets\auto-tools.ico", '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll') + $uiResources + $sources)
 Write-Host "Built: $applicationPath"
-if ($Test) {
-    Invoke-TaskCompiler @('/nologo', '/target:exe', '/platform:anycpu', '/utf8output', '/codepage:65001', "/out:$output\AutoBox.Tests.exe", "/reference:$applicationPath", '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', (Join-Path $taskRoot 'tests\MacroTests.cs'))
-    $testProcess = Start-Process -FilePath "$output\AutoBox.Tests.exe" -Wait -PassThru -NoNewWindow
+if ($Test -or $InteractiveTest) {
+    $testSources = @(Get-ChildItem -Path (Join-Path $taskRoot 'tests\*.cs') | ForEach-Object { $_.FullName })
+    Invoke-TaskCompiler (@('/nologo', '/target:exe', "/platform:$TestPlatform", '/utf8output', '/codepage:65001', "/out:$output\AutoTools.Tests.exe", "/reference:$applicationPath", '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll') + $testSources)
+    $testArguments = @{ FilePath = "$output\AutoTools.Tests.exe"; Wait = $true; PassThru = $true; NoNewWindow = $true }
+    if ($InteractiveTest) { $testArguments.ArgumentList = '--interactive' }
+    $testProcess = Start-Process @testArguments
     if ($testProcess.ExitCode -ne 0) { throw 'Tests failed.' }
 }

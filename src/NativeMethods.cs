@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace AutoBox
+namespace AutoTools
 {
     public sealed class WindowTarget
     {
@@ -29,6 +29,40 @@ namespace AutoBox
         [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern uint SendInput(uint count, Input[] inputs, int size);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Point { internal int X, Y; internal Point(int x, int y) { X = x; Y = y; } }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Rect { internal int Left, Top, Right, Bottom; }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct WindowInfo
+        {
+            internal uint Size;
+            internal Rect WindowRect, ClientRect;
+            internal uint Style, ExtendedStyle, Status, BorderWidth, BorderHeight;
+            internal ushort WindowType, CreatorVersion;
+        }
+        internal delegate bool MonitorCallback(IntPtr monitor, IntPtr dc, ref Rect bounds, IntPtr data);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetClientRect(IntPtr window, out Rect rect);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetCursorPos(out Point point);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool ScreenToClient(IntPtr window, ref Point point);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool ClientToScreen(IntPtr window, ref Point point);
+        [DllImport("user32.dll")] internal static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] internal static extern bool IsChild(IntPtr parent, IntPtr child);
+        [DllImport("user32.dll")] internal static extern bool IsIconic(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool GetWindowInfo(IntPtr window, ref WindowInfo info);
+        [DllImport("user32.dll")] internal static extern IntPtr GetMenu(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool AdjustWindowRectEx(ref Rect rect, uint style, bool menu, uint extendedStyle);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool AdjustWindowRectExForDpi(ref Rect rect, uint style, bool menu, uint extendedStyle, uint dpi);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)] internal static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorCallback callback, IntPtr data);
+        [DllImport("shcore.dll")] internal static extern int GetScaleFactorForMonitor(IntPtr monitor, out int scale);
+        [DllImport("user32.dll")] internal static extern int GetSystemMetrics(int index);
+        [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
+        [DllImport("user32.dll")] internal static extern IntPtr GetDC(IntPtr window);
+        [DllImport("user32.dll")] internal static extern int ReleaseDC(IntPtr window, IntPtr dc);
+        [DllImport("gdi32.dll")] internal static extern int GetDeviceCaps(IntPtr dc, int index);
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct Input { internal uint Type; internal InputData Data; }

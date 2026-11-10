@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace AutoBox
+namespace AutoTools
 {
     internal static class Program
     {
@@ -10,13 +10,13 @@ namespace AutoBox
         private static void Main()
         {
             bool created;
-            using (var mutex = new Mutex(true, @"Local\AutoBox.BackgroundKeyLoop", out created))
+            using (var mutex = new Mutex(true, @"Local\auto-tools.ForegroundInputLoop", out created))
             {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 if (!created)
                 {
-                    MessageBox.Show("AutoBox 已在运行，请查看任务栏或托盘图标。", "AutoBox");
+                    MessageBox.Show("auto-tools 已在运行，请查看任务栏或托盘图标。", "auto-tools");
                     return;
                 }
                 try { Application.Run(new MainForm()); }
