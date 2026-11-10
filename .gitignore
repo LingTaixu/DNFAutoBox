@@ -1,3 +1,2 @@
-dist/*Tests*.exe
-dist/ui-preview.png
 *.pdb
+/dist
