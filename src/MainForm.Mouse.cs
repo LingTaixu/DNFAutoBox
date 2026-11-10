@@ -12,6 +12,7 @@ namespace AutoTools
         private readonly NumericUpDown mouseWidth = MakeNumber(1, 32768);
         private readonly NumericUpDown mouseHeight = MakeNumber(1, 32768);
         private readonly NumericUpDown mouseGap = MakeNumber(0, 3600000);
+        private readonly CheckBox extraEnterForChat = new CheckBox { Text = "增幅后出现聊天了勾选我", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         private readonly PixelButton checkSize = new PixelButton { Text = "检查尺寸", Width = 100, Height = 36 };
         private readonly PixelButton applySize = new PixelButton { Text = "应用尺寸", Width = 100, Height = 36 };
         private readonly PixelButton beginCapture = new PixelButton { Text = "开始取点", Width = 110, Height = 36 };
@@ -60,7 +61,8 @@ namespace AutoTools
             captureKey.Width = 110; options.Controls.Add(captureKey);
             options.Controls.Add(MouseLabel("下轮等待 ms", 110)); options.Controls.Add(mouseGap);
             AddRow(rows, options, 42);
-            AddRow(rows, new Label { Text = "每轮 1 → 左键 → 回车 ×2，间隔 50 ms；自动点击会移动系统鼠标。", Dock = DockStyle.Fill, ForeColor = PixelTheme.Muted }, 28);
+            AddRow(rows, extraEnterForChat, 34);
+            AddRow(rows, new Label { Text = "1→左键 100 ms；左键→回车① 50 ms；①→② 150 ms；勾选后②→③ 50 ms。", Dock = DockStyle.Fill, ForeColor = PixelTheme.Muted }, 28);
             mousePanel.Controls.Add(rows);
             return mousePanel;
         }
@@ -76,7 +78,8 @@ namespace AutoTools
         {
             mouseWidth.Value = Clamp(settings.MouseExpectedWidth, 1, 32768, 1280);
             mouseHeight.Value = Clamp(settings.MouseExpectedHeight, 1, 32768, 720);
-            mouseGap.Value = Clamp(settings.MouseLoopGapMilliseconds, 0, 3600000, 500);
+            mouseGap.Value = Clamp(settings.MouseLoopGapMilliseconds, 0, 3600000, MouseOptions.DefaultLoopGapMilliseconds);
+            extraEnterForChat.Checked = settings.ExtraEnterForChat;
             checkSize.Click += delegate { CheckMouseSize(); };
             applySize.Click += async delegate { await ApplyMouseSizeAsync(); };
             beginCapture.Click += delegate { BeginMouseCapture(); };
@@ -121,8 +124,8 @@ namespace AutoTools
                 float scale = graphics.DpiY / 96F;
                 keyFields.RowStyles[1].Height = mouse ? 0 : 44 * scale;
                 settingsRow.Height = (mouse ? 268 : 312) * scale;
-                mouseRow.Height = mouse ? 274 * scale : 0;
-                ClientSize = new Size(ClientSize.Width, Math.Min((int)((mouse ? 846 : 616) * scale), Screen.FromControl(this).WorkingArea.Height - 80));
+                mouseRow.Height = mouse ? 308 * scale : 0;
+                ClientSize = new Size(ClientSize.Width, Math.Min((int)((mouse ? 880 : 616) * scale), Screen.FromControl(this).WorkingArea.Height - 80));
             }
             SetMouseControlsEnabled(cancellation == null);
             UpdatePointInfo();
@@ -131,6 +134,7 @@ namespace AutoTools
         {
             enabled = enabled && !resizingTarget;
             mouseWidth.Enabled = mouseHeight.Enabled = mouseGap.Enabled = captureKey.Enabled = checkSize.Enabled = applySize.Enabled = enabled && !waitingForPoint;
+            extraEnterForChat.Enabled = enabled && !waitingForPoint;
             beginCapture.Enabled = enabled && !waitingForPoint;
             cancelCapture.Enabled = enabled && waitingForPoint;
             confirmPoint.Enabled = enabled && !waitingForPoint && settings.MousePointConfigured;
@@ -229,7 +233,8 @@ namespace AutoTools
             return new MouseOptions { PointConfigured = settings.MousePointConfigured,
                 ClientPoint = new Point(settings.MouseClientX, settings.MouseClientY),
                 CapturedSize = new Size(settings.MouseCapturedWidth, settings.MouseCapturedHeight),
-                ExpectedSize = ExpectedMouseSize, LoopGapMilliseconds = (int)mouseGap.Value, LoopCount = SelectedLoopLimit };
+                ExpectedSize = ExpectedMouseSize, LoopGapMilliseconds = (int)mouseGap.Value, LoopCount = SelectedLoopLimit,
+                ExtraEnterForChat = extraEnterForChat.Checked };
         }
         private void ConfirmMousePoint()
         {
@@ -318,6 +323,7 @@ namespace AutoTools
             settings.MouseExpectedHeight = (int)mouseHeight.Value;
             settings.MouseCaptureHotkey = SelectedKey(captureKey);
             settings.MouseLoopGapMilliseconds = (int)mouseGap.Value;
+            settings.ExtraEnterForChat = extraEnterForChat.Checked;
         }
         private int SelectedLoopLimit { get { return loopForever.Checked ? 0 : (int)loopCount.Value; } }
         private string LoopProgress()

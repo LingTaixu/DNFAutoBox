@@ -23,6 +23,12 @@ internal static class AmplificationTests
         passed++;
         Console.WriteLine("PASS sequence: " + name);
     }
+    private static MouseOptions ThreeEnterOptions()
+    {
+        var options = MouseTests.Options();
+        options.ExtraEnterForChat = true;
+        return options;
+    }
     private static async Task Cancelled(Task task)
     {
         if (await Task.WhenAny(task, Task.Delay(3000)) != task) throw new Exception("Sequence did not stop promptly.");
@@ -31,27 +37,31 @@ internal static class AmplificationTests
     }
     internal static async Task Run()
     {
-        await TestSequenceAndTiming();
+        foreach (bool enabled in new[] { false, true }) await TestSequenceAndTiming(enabled);
         foreach (int key in new[] { 49, 13 }) await TestCancelHeldKey(key);
+        await TestCancelHeldKey(13, 3);
+        await TestCancelBeforeThirdEnter();
         await TestCancelHeldMouse();
         await TestPauseBeforeEnter();
         await TestWaitBeforeNumber();
         await TestKeyReleaseFailure();
         await TestCancelDuringLoopGap();
-        await TestFinalCycleGap();
-        await TestFocusBetweenEnters();
+        foreach (bool enabled in new[] { false, true }) await TestFinalCycleGap(enabled);
+        foreach (int after in new[] { 1, 2 }) await TestFocusBetweenEnters(after);
         await TestKeyFocusRace();
         await TestZeroGap();
+        foreach (bool enabled in new[] { false, true }) await TestOptionSnapshot(enabled);
         Console.WriteLine("PASS sequence: " + passed + " checks (simulated input only)");
     }
-    private static async Task TestSequenceAndTiming()
+    private static async Task TestSequenceAndTiming(bool extraEnter)
     {
         using (var cancel = new CancellationTokenSource(3000))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
             var log = new List<string>(); var gaps = new List<long>(); var watch = new Stopwatch();
             long lastUp = -1; int enterUps = 0;
-            var options = MouseTests.Options(); options.LoopCount = 2; options.LoopGapMilliseconds = 120;
+            var options = ThreeEnterOptions(); options.LoopCount = 2; options.LoopGapMilliseconds = 120;
+            options.ExtraEnterForChat = extraEnter;
             watch.Start();
             Action<string> down = delegate(string name)
             {
@@ -65,24 +75,30 @@ internal static class AmplificationTests
             long completed = 0;
             await new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
                 delegate(long count) { completed = count; if (count == 1) window.Origin = new Point(400, 100); }, cancel.Token);
-            string cycle = "down:49,up:49,left-down,left-up,down:13,up:13,down:13,up:13";
-            Check(string.Join(",", log) == cycle + "," + cycle && completed == 2 && enterUps == 4, "each finite cycle sends 1, left click, Enter, Enter in order");
-            Check(gaps.Count == 7 && gaps[0] >= 45 && gaps[1] >= 45 && gaps[2] >= 45 && gaps[3] >= 115 && gaps[4] >= 45 && gaps[5] >= 45 && gaps[6] >= 45,
-                "action gaps are 50ms and the user loop gap starts after the second Enter release");
+            string cycle = "down:49,up:49,left-down,left-up,down:13,up:13,down:13,up:13" + (extraEnter ? ",down:13,up:13" : "");
+            Check(string.Join(",", log) == cycle + "," + cycle && completed == 2 && enterUps == (extraEnter ? 6 : 4),
+                "each finite cycle sends exactly " + (extraEnter ? "three" : "two") + " Enters when the chat option is " + extraEnter);
+            bool timing = extraEnter
+                ? gaps.Count == 9 && gaps[0] >= 95 && gaps[1] >= 45 && gaps[2] >= 145 && gaps[3] >= 45 && gaps[4] >= 115 && gaps[5] >= 95 && gaps[6] >= 45 && gaps[7] >= 145 && gaps[8] >= 45
+                : gaps.Count == 7 && gaps[0] >= 95 && gaps[1] >= 45 && gaps[2] >= 145 && gaps[3] >= 115 && gaps[4] >= 95 && gaps[5] >= 45 && gaps[6] >= 145;
+            Check(timing, "sequence timing and next-loop delay follow the final selected Enter (chat option=" + extraEnter + ")");
             Check(input.Moves[0] == new Point(600, 500) && input.Moves[1] == new Point(900, 400), "the full sequence follows the moved game window");
         }
     }
-    private static async Task TestCancelHeldKey(int key)
+    private static async Task TestCancelHeldKey(int key, int occurrence = 1)
     {
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            keyboard.Down = delegate(int current) { if (current == key) cancel.Cancel(); };
+            int presses = 0;
+            keyboard.Down = delegate(int current) { if (current == key && ++presses == occurrence) cancel.Cancel(); };
             long completed = 0;
-            await Cancelled(new AmplificationEngine().RunAsync(MouseTests.Options(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
+            await Cancelled(new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
                 delegate(long count) { completed = count; }, cancel.Token));
-            Check(keyboard.Log == (key == 49 ? "down:49,up:49" : "down:49,up:49,down:13,up:13") && completed == 0,
-                "stop while holding " + key + " releases that key and skips the remaining sequence");
+            string expected = "down:49,up:49";
+            if (key == 13) for (int i = 0; i < occurrence; i++) expected += ",down:13,up:13";
+            Check(keyboard.Log == expected && completed == 0,
+                "stop while holding " + key + " occurrence " + occurrence + " releases that key and skips the remaining sequence");
         }
     }
     private static async Task TestCancelHeldMouse()
@@ -91,7 +107,7 @@ internal static class AmplificationTests
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
             input.OnDown = delegate { cancel.Cancel(); };
-            await Cancelled(new AmplificationEngine().RunAsync(MouseTests.Options(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token));
+            await Cancelled(new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token));
             Check(input.Log == "move,down,up" && keyboard.Log == "down:49,up:49", "stop during left click releases it without sending Enter");
         }
     }
@@ -102,7 +118,7 @@ internal static class AmplificationTests
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
             var mouse = new ForegroundMouseTransport(MouseTests.Service(window), input);
             input.OnUp = delegate { mouse.IsPaused = true; };
-            bool paused = false; var options = MouseTests.Options(); options.LoopCount = 1;
+            bool paused = false; var options = ThreeEnterOptions(); options.LoopCount = 1;
             await new AmplificationEngine().RunAsync(options, mouse, keyboard,
                 delegate(MouseReadiness state)
                 {
@@ -112,7 +128,7 @@ internal static class AmplificationTests
                         paused = true; mouse.IsPaused = false;
                     }
                 }, null, cancel.Token);
-            Check(paused && keyboard.Log == "down:49,up:49,down:13,up:13,down:13,up:13", "resume continues the pending Enter sequence without repeating 1 or click");
+            Check(paused && keyboard.Log == "down:49,up:49,down:13,up:13,down:13,up:13,down:13,up:13", "resume continues the pending Enter sequence without repeating 1 or click");
         }
     }
     private static async Task TestWaitBeforeNumber()
@@ -120,7 +136,7 @@ internal static class AmplificationTests
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow { Foreground = false }; var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            await Cancelled(new AmplificationEngine().RunAsync(MouseTests.Options(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard,
+            await Cancelled(new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard,
                 delegate(MouseReadiness state) { if (!state.Ready) cancel.Cancel(); }, null, cancel.Token));
             Check(input.Log == "" && keyboard.Log == "", "not foreground sends neither number key nor mouse input");
         }
@@ -133,7 +149,7 @@ internal static class AmplificationTests
             keyboard.Down = delegate(int key) { cancel.Cancel(); };
             keyboard.Up = delegate(int key) { throw new InvalidOperationException("key release failed"); };
             bool failed = false;
-            try { await new AmplificationEngine().RunAsync(MouseTests.Options(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token); }
+            try { await new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token); }
             catch (InvalidOperationException error) { failed = error.ToString().Contains("key release failed"); }
             Check(failed && keyboard.Log == "down:49,up:49,up:49" && input.Log == "", "key release failures remain visible on cancellation and cleanup retries once");
         }
@@ -143,42 +159,43 @@ internal static class AmplificationTests
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            var options = MouseTests.Options(); options.LoopGapMilliseconds = 3600000;
+            var options = ThreeEnterOptions(); options.LoopGapMilliseconds = 3600000;
             await Cancelled(new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
                 delegate(long count) { cancel.CancelAfter(20); }, cancel.Token));
-            Check(input.Ups == 1 && keyboard.Events.Count == 6, "stop interrupts a long user loop gap without starting the next number press");
+            Check(input.Ups == 1 && keyboard.Events.Count == 8, "stop interrupts a long user loop gap without starting the next number press");
         }
     }
-    private static async Task TestFinalCycleGap()
+    private static async Task TestFinalCycleGap(bool extraEnter)
     {
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            var options = MouseTests.Options(); options.LoopCount = 1; options.LoopGapMilliseconds = 3600000;
+            var options = ThreeEnterOptions(); options.LoopCount = 1; options.LoopGapMilliseconds = 3600000;
+            options.ExtraEnterForChat = extraEnter;
             long completed = 0;
             await new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
                 delegate(long count) { completed = count; }, cancel.Token);
-            Check(completed == 1, "finite sequence ends after the last Enter and skips the next-loop delay");
+            Check(completed == 1 && keyboard.Events.Count == (extraEnter ? 8 : 6), "finite sequence skips the final loop delay (chat option=" + extraEnter + ")");
         }
     }
-    private static async Task TestFocusBetweenEnters()
+    private static async Task TestFocusBetweenEnters(int after)
     {
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            var options = MouseTests.Options(); options.LoopCount = 1;
+            var options = ThreeEnterOptions(); options.LoopCount = 1;
             int enters = 0; bool waited = false;
-            keyboard.Up = delegate(int key) { if (key == 13 && ++enters == 1) window.Foreground = false; };
+            keyboard.Up = delegate(int key) { if (key == 13 && ++enters == after) window.Foreground = false; };
             await new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard,
                 delegate(MouseReadiness state)
                 {
                     if (!state.Ready)
                     {
-                        Check(enters == 1 && keyboard.Events.Count == 4, "focus loss between Enters pauses before the second Enter");
+                        Check(enters == after && keyboard.Events.Count == 2 + after * 2, "focus loss after Enter " + after + " pauses before the next Enter");
                         waited = true; window.Foreground = true;
                     }
                 }, null, cancel.Token);
-            Check(waited && enters == 2 && input.Ups == 1, "returning to foreground completes the pending Enter without duplicating the click");
+            Check(waited && enters == 3 && input.Ups == 1, "returning after Enter " + after + " completes the pending Enters without duplicating the click");
         }
     }
     private static async Task TestKeyFocusRace()
@@ -186,7 +203,7 @@ internal static class AmplificationTests
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            await Cancelled(new AmplificationEngine().RunAsync(MouseTests.Options(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard,
+            await Cancelled(new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard,
                 delegate(MouseReadiness state) { if (state.Ready) window.Foreground = false; else cancel.Cancel(); }, null, cancel.Token));
             Check(keyboard.Log == "" && input.Log == "", "focus lost just before the number press sends no down or unowned up");
         }
@@ -196,9 +213,32 @@ internal static class AmplificationTests
         using (var cancel = new CancellationTokenSource(2500))
         {
             var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
-            var options = MouseTests.Options(); options.LoopCount = 2; options.LoopGapMilliseconds = 0;
+            var options = ThreeEnterOptions(); options.LoopCount = 2; options.LoopGapMilliseconds = 0;
             await new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token);
-            Check(input.Ups == 2 && keyboard.Events.Count == 12, "a user loop gap of zero milliseconds is accepted");
+            Check(input.Ups == 2 && keyboard.Events.Count == 16, "a user loop gap of zero milliseconds is accepted");
+        }
+    }
+    private static async Task TestCancelBeforeThirdEnter()
+    {
+        using (var cancel = new CancellationTokenSource(2500))
+        {
+            var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
+            int enters = 0; long completed = 0;
+            keyboard.Up = delegate(int key) { if (key == 13 && ++enters == 2) cancel.CancelAfter(20); };
+            await Cancelled(new AmplificationEngine().RunAsync(ThreeEnterOptions(), new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null,
+                delegate(long count) { completed = count; }, cancel.Token));
+            Check(enters == 2 && keyboard.Events.Count == 6 && completed == 0, "stop during the 50ms third-Enter gap skips the third press and does not complete a cycle");
+        }
+    }
+    private static async Task TestOptionSnapshot(bool enabled)
+    {
+        using (var cancel = new CancellationTokenSource(2500))
+        {
+            var window = new MouseTests.FakeWindow(); var input = new MouseTests.FakeInput(window); var keyboard = new Keyboard();
+            var options = MouseTests.Options(); options.LoopCount = 1; options.ExtraEnterForChat = enabled;
+            keyboard.Up = delegate(int key) { options.ExtraEnterForChat = !enabled; };
+            await new AmplificationEngine().RunAsync(options, new ForegroundMouseTransport(MouseTests.Service(window), input), keyboard, null, null, cancel.Token);
+            Check(keyboard.Events.Count == (enabled ? 8 : 6), "chat option is fixed at run start (initial=" + enabled + ")");
         }
     }
 }

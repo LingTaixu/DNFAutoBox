@@ -20,8 +20,9 @@ namespace AutoTools
         public int MouseExpectedWidth = 1280;
         public int MouseExpectedHeight = 720;
         public int MouseCaptureHotkey = 0x76;
-        public int MouseLoopGapMilliseconds = 500;
+        public int MouseLoopGapMilliseconds = MouseOptions.DefaultLoopGapMilliseconds;
         public string MousePointProcessName = "";
+        public bool ExtraEnterForChat;
         public bool LoopForever = true;
         public int LoopCount = 1;
 

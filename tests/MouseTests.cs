@@ -114,12 +114,12 @@ internal static class MouseTests
         using (var input = new StringReader("<AppSettings><Mode>1</Mode><VirtualKey>54</VirtualKey></AppSettings>"))
         {
             var old = (AppSettings)serializer.Deserialize(input);
-            Check(old.Mode == 1 && old.VirtualKey == 54 && !old.MousePointConfigured && old.MouseCaptureHotkey == 0x76 && old.MouseLoopGapMilliseconds == 500 && old.LoopForever,
+            Check(old.Mode == 1 && old.VirtualKey == 54 && !old.MousePointConfigured && old.MouseCaptureHotkey == 0x76 && old.MouseLoopGapMilliseconds == 1000 && new MouseOptions().LoopGapMilliseconds == 1000 && old.LoopForever && !old.ExtraEnterForChat && !new MouseOptions().ExtraEnterForChat,
                 "old config preserves keyboard mode and initializes mouse defaults");
         }
         var settings = new AppSettings { Mode = 2, MousePointConfigured = true, MouseClientX = 0, MouseClientY = 0,
             MouseCapturedWidth = 1280, MouseCapturedHeight = 720, MouseExpectedWidth = 1280, MouseExpectedHeight = 720,
-            MouseCaptureHotkey = 0x75, MouseLoopGapMilliseconds = 700, MousePointProcessName = "game", LoopForever = false, LoopCount = 12 };
+            MouseCaptureHotkey = 0x75, MouseLoopGapMilliseconds = 700, MousePointProcessName = "game", LoopForever = false, LoopCount = 12, ExtraEnterForChat = true };
         using (var output = new StringWriter())
         {
             serializer.Serialize(output, settings);
@@ -128,7 +128,7 @@ internal static class MouseTests
                 var restored = (AppSettings)serializer.Deserialize(input);
                 Check(restored.Mode == 2 && restored.MousePointConfigured && restored.MouseClientX == 0 && restored.MouseClientY == 0 &&
                     restored.MouseCapturedWidth == 1280 && restored.MouseCapturedHeight == 720 && restored.MouseExpectedWidth == 1280 &&
-                    restored.MouseExpectedHeight == 720 && restored.MouseCaptureHotkey == 0x75 && restored.MouseLoopGapMilliseconds == 700 && restored.MousePointProcessName == "game" && !restored.LoopForever && restored.LoopCount == 12,
+                    restored.MouseExpectedHeight == 720 && restored.MouseCaptureHotkey == 0x75 && restored.MouseLoopGapMilliseconds == 700 && restored.MousePointProcessName == "game" && !restored.LoopForever && restored.LoopCount == 12 && restored.ExtraEnterForChat,
                     "all mouse settings roundtrip, including configured (0,0)");
             }
         }

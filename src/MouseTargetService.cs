@@ -5,6 +5,7 @@ namespace AutoTools
 {
     public sealed class MouseOptions
     {
+        public const int DefaultLoopGapMilliseconds = 1000;
         public bool PointConfigured { get; set; }
         public Point ClientPoint { get; set; }
         public Size CapturedSize { get; set; }
@@ -12,7 +13,8 @@ namespace AutoTools
         public int HoldMilliseconds { get; set; }
         public int LoopGapMilliseconds { get; set; }
         public int LoopCount { get; set; } // Zero means keep running until stopped.
-        public MouseOptions() { HoldMilliseconds = 10; LoopGapMilliseconds = 500; }
+        public bool ExtraEnterForChat { get; set; }
+        public MouseOptions() { HoldMilliseconds = 10; LoopGapMilliseconds = DefaultLoopGapMilliseconds; }
         public void Validate()
         {
             ValidateSize(ExpectedSize);

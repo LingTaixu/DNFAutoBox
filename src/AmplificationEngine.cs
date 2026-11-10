@@ -4,10 +4,13 @@ using System.Threading.Tasks;
 
 namespace AutoTools
 {
-    // The configured count is a complete 1 -> click -> Enter -> Enter sequence.
+    // A cycle ends after two Enters, or three when the chat workaround is selected.
     public sealed class AmplificationEngine
     {
         public const int ActionGapMilliseconds = 50;
+        public const int NumberToClickGapMilliseconds = 100;
+        public const int EnterGapMilliseconds = 150;
+        public const int ThirdEnterGapMilliseconds = 50;
         public async Task RunAsync(MouseOptions options, ForegroundMouseTransport mouse, IKeyTransport keyboard,
             Action<MouseReadiness> report, Action<long> completed, CancellationToken token)
         {
@@ -17,6 +20,7 @@ namespace AutoTools
             options.Validate();
             int limit = options.LoopCount;
             int gap = options.LoopGapMilliseconds;
+            bool extraEnterForChat = options.ExtraEnterForChat;
             var click = new MouseOptions { PointConfigured = options.PointConfigured, ClientPoint = options.ClientPoint,
                 ExpectedSize = options.ExpectedSize, CapturedSize = options.CapturedSize,
                 HoldMilliseconds = options.HoldMilliseconds, LoopGapMilliseconds = 10, LoopCount = 1 };
@@ -25,12 +29,17 @@ namespace AutoTools
             {
                 token.ThrowIfCancellationRequested();
                 await PressAsync(0x31, click, mouse, keyboard, report, token).ConfigureAwait(false);
-                await Task.Delay(ActionGapMilliseconds, token).ConfigureAwait(false);
+                await Task.Delay(NumberToClickGapMilliseconds, token).ConfigureAwait(false);
                 await new MouseEngine().RunAsync(click, mouse, report, token).ConfigureAwait(false);
                 await Task.Delay(ActionGapMilliseconds, token).ConfigureAwait(false);
                 await PressAsync(0x0D, click, mouse, keyboard, report, token).ConfigureAwait(false);
-                await Task.Delay(ActionGapMilliseconds, token).ConfigureAwait(false);
+                await Task.Delay(EnterGapMilliseconds, token).ConfigureAwait(false);
                 await PressAsync(0x0D, click, mouse, keyboard, report, token).ConfigureAwait(false);
+                if (extraEnterForChat)
+                {
+                    await Task.Delay(ThirdEnterGapMilliseconds, token).ConfigureAwait(false);
+                    await PressAsync(0x0D, click, mouse, keyboard, report, token).ConfigureAwait(false);
+                }
                 cycles++;
                 if (completed != null) completed(cycles);
                 token.ThrowIfCancellationRequested();
